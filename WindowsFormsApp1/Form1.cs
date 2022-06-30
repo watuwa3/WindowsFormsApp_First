@@ -19,11 +19,11 @@ namespace WindowsFormsApp1
 
         DataSet ds = new DataSet();
         // Oracleへの接続情報
-        private OracleConnection s_OracleConnection = null;
+        private OracleConnection cnn = null;
         private string userid       = "KOKEN_7";
         private string password     = "KOKEN_7";
         private string protocol     = "tcp";
-        private string host         = "192.168.96.214";
+        private string host         = "192.168.96.213";
         private string port         = "1521";
         private string servicename  = "KTEST";
         private string schema       = "KOKEN_7";
@@ -63,11 +63,9 @@ namespace WindowsFormsApp1
         }
 
         // DBオープン
-        private bool OraDBOpen(string userId, string password, string protocol, string host, int port, string serviceName)
+        private bool OraDBOpen()
         {
-
             bool ret = false;
-
             string dataSource =
                 "(DESCRIPTION=" +
                 "(ADDRESS=" +
@@ -76,18 +74,16 @@ namespace WindowsFormsApp1
                 "(PORT=" + port + ")" + ")" +
                 "(CONNECT_DATA=" + "(SERVICE_NAME=" + servicename+ ")" + ")" +
                 ")";
-
             try
             {
-                s_OracleConnection = new OracleConnection();
-                if (s_OracleConnection != null)
+                cnn = new OracleConnection();
+                if (cnn != null)
                 {
                     string connectString = "User Id=" + userid + "; "
                                     + "Password=" + password + "; "
                                     + "Data Source=" + dataSource;
-                    s_OracleConnection.ConnectionString = connectString;
-
-                    s_OracleConnection.Open();
+                    cnn.ConnectionString = connectString;
+                    cnn.Open();
                     ret = true;
                 }
             }
@@ -119,39 +115,63 @@ namespace WindowsFormsApp1
         private void 表示ToolStripMenuItem_Click(object sender, EventArgs e)
         {
 
-
             // MySQLへの接続情報
-            string server = "192.168.96.213";
-            string database = "koken_7";
-            string user = "koken_7";
-            string pass = "koken_7";
-            string charset = "utf8";
+            //string server = "192.168.96.213";
+            //string database = "koken_7";
+            //string user = "koken_7";
+            //string pass = "koken_7";
+            //string charset = "utf8";
             string connectionString = string.Format("Server={0};Database={1};Uid={2};Pwd={3};Charset={4}", server, database, user, pass, charset);
             // DataGridView
-            // MySQLへの接続
+
+            // Oracleへの接続
+            if (OraDBOpen() == false)
+            {
+                Console.WriteLine("DatabaseOpenError ");
+            }
+            
             try
             {
                 // MySQLに接続して、SELECT文で取得したデータをデータテーブルに格納する。
                 // 手配ファイル
-                MySqlDataAdapter adpD0410 = new MySqlDataAdapter("SELECT* FROM D0410", connectionString);
+                string sqlD0410 = "SELECT* FROM D0410 WHERE ODRSTS='2' AND KTCD='WL15' ORDER BY HMCD, EDDT";
                 DataTable dtD0410 = new DataTable();
-                adpD0410.Fill(dtD0410);
+
+
+                // MySqlDataAdapter adpD0410 = new MySqlDataAdapter(sqlD0410, connectionString);
+                // adpD0410.Fill(dtD0410);
+                // ds.Tables.Add(dtD0410);
+                // ds.Tables[ds.Tables.Count - 1].TableName = "D0410";
+
+                OracleCommand myCmdD0410 = new OracleCommand(sqlD0410, cnn);
+                OracleDataAdapter myDaD0410 = new OracleDataAdapter(myCmdD0410);
+                myDaD0410.Fill(ds, "D0410");
+
+
                 dtD0410.PrimaryKey = new DataColumn[]
                         { dtD0410.Columns["ODRNO"] };
-                ds.Tables.Add(dtD0410);
-                ds.Tables[ds.Tables.Count - 1].TableName = "D0410";
 
                 // 手配先マスタ
-                MySqlDataAdapter adpM0300 = new MySqlDataAdapter("SELECT* FROM M0300", connectionString);
+                string sqlM0300 = "SELECT* FROM M0300 ORDER BY ODCD";
                 DataTable dtM0300 = new DataTable();
-                adpM0300.Fill(dtM0300);
+
+
+                // MySqlDataAdapter adpM0300 = new MySqlDataAdapter(sqlM0300, connectionString);
+                // adpM0300.Fill(dtM0300);
+                // ds.Tables.Add(dtM0300);
+                // ds.Tables[ds.Tables.Count - 1].TableName = "M0300";
+
+                OracleCommand myCmdM0300 = new OracleCommand(sqlM0300, cnn);
+                OracleDataAdapter myDaM0300 = new OracleDataAdapter(myCmdM0300);
+                myDaM0300.Fill(ds, "M0300");
+
+
                 dtM0300.PrimaryKey = new DataColumn[]
                         { dtM0300.Columns["ODCD"] };
-                ds.Tables.Add(dtM0300);
-                ds.Tables[ds.Tables.Count - 1].TableName = "M0300";
 
                 // 品目手順詳細マスタ
-                string sqlM0510 =
+                /* MySQL
+                    string sqlM0510 =
                     @"select hmcd, 
                     max(case when ktseq = 10 then odcd else null end) as '10', 
                     max(case when ktseq = 20 then odcd else null end) as '20', 
@@ -162,13 +182,37 @@ namespace WindowsFormsApp1
                     max(case when ktseq = 70 then odcd else null end) as '70'
                     from M0510
                     group by hmcd ";
-                MySqlDataAdapter adpM0510 = new MySqlDataAdapter(sqlM0510, connectionString);
+                */
+                string sqlM0510 =
+                    @"select * 
+                    from (
+	                    select hmcd, ktseq, max(odrnm) as odrnm 
+	                     from M0510, M0300 
+	                    where M0300.ODCD= M0510.ODCD 
+	                      and VALDTF = 
+	                      (select MAX(tmp.VALDTF) from M0510 tmp where tmp.HMCD = M0510.HMCD)
+	                      and exists 
+	                      (select*from M0510 wk where wk.HMCD = M0510.HMCD and KTCD = 'WL15')
+	                    group by hmcd, ktseq
+                    )
+                    pivot (
+	                    max(odrnm) for ktseq in (10, 20, 30, 40, 50, 60, 70)
+                    )";
                 DataTable dtM0510 = new DataTable();
-                adpM0510.Fill(dtM0510);
+
+
+                //MySqlDataAdapter adpM0510 = new MySqlDataAdapter(sqlM0510, connectionString);
+                //adpM0510.Fill(dtM0510);
+                //ds.Tables.Add(dtM0510);
+                //ds.Tables[ds.Tables.Count - 1].TableName = "M0510";
+
+                OracleCommand myCmdM0510 = new OracleCommand(sqlM0510, cnn);
+                OracleDataAdapter myDaM0510 = new OracleDataAdapter(myCmdM0510);
+                myDaM0510.Fill(ds, "M0510");
+
+
                 dtM0510.PrimaryKey = new DataColumn[]
                         { dtM0510.Columns["HMCD"] };
-                ds.Tables.Add(dtM0510);
-                ds.Tables[ds.Tables.Count - 1].TableName = "M0510";
 
                 // リレーションを貼る
                 ds.Relations.Add("手配先マスタ",
@@ -188,8 +232,8 @@ namespace WindowsFormsApp1
                     // 結合されていた場合
                     if (ChildRow.Length != 0)
                     {
-                        // 会社名称格納
-                        ds.Tables["D0410"].Rows[nRecordCnt]["ODCD"] = ChildRow[0]["ODNM"].ToString();
+                        // 手配先名称格納
+                        ds.Tables["D0410"].Rows[nRecordCnt]["ODCD"] = ChildRow[0]["ODRNM"].ToString();
                     }
                     else
                     {
@@ -200,7 +244,7 @@ namespace WindowsFormsApp1
                     // 結合されていた場合
                     if (ChildRow.Length != 0)
                     {
-                        // 会社名称格納
+                        // 手配先名称格納
                         ds.Tables["D0410"].Rows[nRecordCnt]["HMCD"] = ChildRow[0]["10"].ToString();
                     }
                     else
@@ -223,6 +267,7 @@ namespace WindowsFormsApp1
 
             // series
             // MySQLへの接続
+/*
             try
             {
                 DataTable dtg = new DataTable();
@@ -257,7 +302,7 @@ namespace WindowsFormsApp1
             {
                 Console.WriteLine("ERROR: " + me.Message);
             }
-
+*/
         }
 
         private void 閉じるCToolStripMenuItem_Click(object sender, EventArgs e)
